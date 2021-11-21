@@ -196,7 +196,7 @@ compile = get >>= \case
                                                         liftIO $ putStrLn "dynamic"
                                                         return Undef
                                                     else do
-                                                        liftIO $ print $ x
+                                                        liftIO $ print $ x    
                                                         liftIO $ print $ xs
                                                         return Undef
         IST { pcode = (x:xs) } -> exec
