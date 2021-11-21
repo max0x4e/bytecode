@@ -1,0 +1,9 @@
+packages: .
+tests: True
+benchmarks: True
+
+constraints:
+  semigroups -hashable -text -binary -bytestring
+
+allow-newer:
+  hsc2hs:base

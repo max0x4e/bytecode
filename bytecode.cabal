@@ -1,0 +1,76 @@
+cabal-version: 1.12
+
+-- This file has been generated from package.yaml by hpack version 0.34.4.
+--
+-- see: https://github.com/sol/hpack
+
+name:           bytecode
+version:        0.1.0.0
+description:    Please see the README on GitHub at <https://github.com/max0x4e/bytecode#readme>
+homepage:       https://github.com/max0x4e/bytecode#readme
+bug-reports:    https://github.com/max0x4e/bytecode/issues
+author:         Max Belov
+maintainer:     maxim.belov@northstar.systems
+copyright:      2021 Maxim Belov
+license:        BSD3
+license-file:   LICENSE
+build-type:     Simple
+extra-source-files:
+    README.md
+    ChangeLog.md
+
+source-repository head
+  type: git
+  location: https://github.com/max0x4e/bytecode
+
+library
+  exposed-modules:
+      Bytecode
+  other-modules:
+      Paths_bytecode
+  hs-source-dirs:
+      src
+  build-depends:
+      Stack
+    , base >=4.7 && <5
+    , mtl
+    , regex-compat
+    , unordered-containers
+  default-language: Haskell2010
+
+executable bytecode-exe
+  main-is: Main.hs
+  other-modules:
+      Paths_bytecode
+  hs-source-dirs:
+      app
+  ghc-options: -threaded -rtsopts -with-rtsopts=-N
+  build-depends:
+      Stack
+    , base >=4.7 && <5
+    , bytecode
+    , filepath
+    , mtl
+    , regex-compat
+    , unordered-containers
+  default-language: Haskell2010
+
+test-suite bytecode-test
+  type: exitcode-stdio-1.0
+  main-is: Spec.hs
+  other-modules:
+      BytecodeSpec
+      SpecHelper
+      Paths_bytecode
+  hs-source-dirs:
+      test
+  ghc-options: -threaded -rtsopts -with-rtsopts=-N
+  build-depends:
+      Stack
+    , base >=4.7 && <5
+    , bytecode
+    , hspec
+    , mtl
+    , regex-compat
+    , unordered-containers
+  default-language: Haskell2010

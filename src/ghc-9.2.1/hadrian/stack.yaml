@@ -1,0 +1,14 @@
+resolver: lts-17.5
+
+packages:
+- '.'
+
+nix:
+   enable: false
+   packages:
+   - autoconf
+   - automake
+   - gcc
+   - git
+   - ncurses
+   - perl
