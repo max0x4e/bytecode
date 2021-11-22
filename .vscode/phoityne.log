@@ -55,3 +55,5 @@
 2021-11-19 08:11:33.027027326000 [84460(ThreadId 9)] ERROR APP - [CRITICAL] can not get the initial ghci prompt.
 2021-11-19 16:02:29.992574894000 [142348(ThreadId 9)] ERROR APP - [CRITICAL] can not get the initial ghci prompt.
 2021-11-21 09:32:04.171034912000 [534313(ThreadId 9)] ERROR APP - [CRITICAL] can not get the initial ghci prompt.
+2021-11-22 20:38:50.446387205000 [782840(ThreadId 9)] ERROR APP - user error (<getModule> loaded module can not find from path. </home/maxim/dev/workspace/bytecode/test/BytecodeSpec.hs> [("Bytecode","/home/maxim/dev/workspace/bytecode/src/Bytecode.hs"),("SpecHelper","/home/maxim/dev/workspace/bytecode/test/SpecHelper.hs")])
+2021-11-22 20:38:50.584480008000 [782840(ThreadId 9)] ERROR APP - start debugging failed. user error (ExecResult not found.) : Left "user error (ExecResult not found.)"

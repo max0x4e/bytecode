@@ -1,4 +1,4 @@
-{-# LANGUAGE OverloadedRecordDot, DuplicateRecordFields, LambdaCase #-}
+{-# LANGUAGE LambdaCase #-}
 
 module Bytecode
     ( 
@@ -22,7 +22,7 @@ type Eval a = ContT Value (StateT IST IO) a
 
 type DataStack = Stack Value
 
-type CompilerStack = Stack Value
+type CompilerStack = Stack String
 
 type Heap = [ Value ]
 
@@ -41,8 +41,7 @@ data IST = IST {
     dd :: Dictionary [ ByteCodeOp ] -- dynamic dictionary
 }
 
-compilerActions :: Dictionary ByteCodeOp
-compilerActions = fromList [(":", cColon), (";", cSemi), ("if", cIf), ("else", cElse), ("then", cThen), ("begin", cBegin), ("until", cUntil)]
+{-------------  Runtime Actions ----------------------------}
 
 runtimeActions :: Dictionary ByteCodeOp
 runtimeActions = fromList [("+", rAdd), ("-" , rSub), ("/", rDiv), ("*", rMul), ("over", rOver), ("dup", rDup), ("swap", rSwap), (".", rDot), 
@@ -59,7 +58,7 @@ popData = do
 pushData :: Value -> Eval Value
 pushData x = do 
     ist <- get
-    put ist { ds = stackPush ist.ds x }
+    put ist { ds = stackPush (ds ist) x }
     return Undef
 
 rData :: String -> ByteCodeOp
@@ -147,7 +146,7 @@ rDrop = popData >> return Undef
 rJmp :: ByteCodeOp
 rJmp = do
     ist <- get
-    addr <- (ist.pcode !! ist.pp)
+    addr <- pcode ist !! pp ist
     case addr of
         Integer a' ->  put ist { pp = a' } >> return Undef
         _ -> liftIO $ die "Incorrect JUMP address."
@@ -155,20 +154,20 @@ rJmp = do
 rJnz :: ByteCodeOp
 rJnz = do
     ist <- get
-    addr <- (ist.pcode !! ist.pp)
+    addr <- pcode ist !! pp ist
     x <- popData
     case (x, addr) of 
-        (Integer 0, _) -> put ist { pp = ist.pp + 1 } >> return Undef
+        (Integer 0, _) -> put ist { pp = pp ist + 1 } >> return Undef
         (Integer _, Integer a') -> put ist { pp = a' } >> return Undef
 
 rJz :: ByteCodeOp
 rJz = do
     ist <- get
-    addr <- (ist.pcode !! ist.pp)
+    addr <- pcode ist !! pp ist
     x <- popData
     case (x, addr) of 
         (Integer 0, Integer a') -> put ist { pp = a' } >> return Undef
-        _ -> put ist { pp = ist.pp + 1 } >> return Undef
+        _ -> put ist { pp = pp ist + 1 } >> return Undef
 
 rEq :: ByteCodeOp
 rEq = do
@@ -205,7 +204,7 @@ rAt = do
     ist <- get
     addr <- popData
     case addr of
-        Integer a -> pushData (ist.heap !! a)
+        Integer a -> pushData (heap ist !! a)
         _ -> liftIO $ die "Heap address is incorrect."
 
 rBang :: ByteCodeOp
@@ -226,26 +225,45 @@ rRun = get >>= put >> return Undef
 rPush :: ByteCodeOp
 rPush = do
     ist <- get
-    d <- ist.pcode !! ist.pp
-    pushData (d)
-    put ist { pp = ist.pp + 1 }
+    d <- pcode ist !! pp ist
+    pushData d
+    put ist { pp = pp ist + 1 }
     return Undef
 
-popControl :: Eval Value
+exec :: Eval Value
+exec = do
+        ist <- get
+        if (pp ist) == length (pcode ist) then compile
+        else put ist { pp = pp ist + 1 } >> pcode ist !! pp ist >> exec
+
+{-------------  Compile-time Actions ----------------------------}
+compilerActions :: Dictionary ByteCodeOp
+compilerActions = fromList [(":", cColon), (";", cSemi), ("if", cIf), ("else", cElse), ("then", cThen), ("begin", cBegin), ("until", cUntil)]
+
+popControl :: Eval String
 popControl = do
     cs <- gets cs
     case stackPop cs of
         Just (cs, x) -> return x
         Nothing -> liftIO $ die "Attempted to pop on empty control stack"
 
-pushControl :: Value -> Eval Value
+pushControl :: String -> Eval String
 pushControl x = do 
     ist <- get
-    put ist { ds = stackPush ist.cs x }
-    return Undef
+    put ist { cs = stackPush (cs ist) x }
+    return ""
 
 cColon :: ByteCodeOp
-cColon = get >>= put >> return Undef
+cColon = do
+    ist <- get
+    if stackIsEmpty (cs ist) then do
+        case program ist of
+            [] -> do
+                c <- liftIO $ moreCode "... " 
+                put ist { cs = stackPush (cs ist) (head c), program = tail c }
+                return Undef
+            (x:xs) -> put ist { cs = stackPush (cs ist) x, program = xs } >> return Undef     
+    else liftIO $ die "Control Stack is not empty while trying to do : ."
 
 cSemi :: ByteCodeOp
 cSemi = get >>= put >> return Undef
@@ -287,8 +305,7 @@ moreCode :: String -> IO [ String ]
 moreCode prompt = do
     putStr prompt
     hFlush stdout
-    rawCode <- getLine
-    return $ lexer $ rawCode
+    lexer <$> getLine
 
 compile :: Eval Value
 compile = get >>= \case
@@ -304,20 +321,20 @@ compile = get >>= \case
                                                          Just op -> op >> compile
                                                          Nothing -> case M.lookup x runtimeActions of 
                                                                         Just op -> do
-                                                                            modify $ \ist -> ist { pcode = ist.pcode ++ [op] }
+                                                                            modify $ \ist -> ist { pcode = pcode ist ++ [op] }
                                                                             compile
                                                                         Nothing -> do
                                                                             dd <- gets dd
                                                                             case M.lookup x dd of
                                                                                 Just bc -> do
-                                                                                    modify $ \ist -> ist { pcode = ist.pcode ++ [rRun, rData x] }
+                                                                                    modify $ \ist -> ist { pcode = pcode ist ++ [rRun, rData x] }
                                                                                     compile
                                                                                 Nothing -> do
                                                                                     y <- rData x
                                                                                     case y of
-                                                                                        Integer i -> modify $ \ist -> ist { pcode = ist.pcode ++ [rPush, rData x] }
-                                                                                        Float d -> modify $ \ist -> ist { pcode = ist.pcode ++ [rPush, rData x] }
-                                                                                        Word w -> modify $ \ist -> ist { pcode = ist.pcode ++ [rRun, rData x] }
+                                                                                        Integer i -> modify $ \ist -> ist { pcode = pcode ist ++ [rPush, rData x] }
+                                                                                        Float d -> modify $ \ist -> ist { pcode = pcode ist ++ [rPush, rData x] }
+                                                                                        Word w -> modify $ \ist -> ist { pcode = pcode ist ++ [rRun, rData x] }
                                                                                     compile
         IST { pcode = (x:xs) } -> do  cs <- gets cs
                                       if stackIsEmpty cs then exec
@@ -326,13 +343,6 @@ compile = get >>= \case
                                           modify $ \ist -> ist { program = c }
                                           compile
 
-exec :: Eval Value
-exec = do
-        ist <- get
-        if ist.pp == length ist.pcode then compile
-        else put ist { pp = ist.pp + 1 } >> ist.pcode !! ist.pp >> exec
-
--- Later I may make it fancier with attoparsec or smth similar
 lexer :: String -> [ String ]
 lexer input = words $ subRegex (mkRegex "#.*$") input "\n"
 
