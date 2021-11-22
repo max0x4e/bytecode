@@ -22,7 +22,7 @@ type Eval a = ContT Value (StateT IST IO) a
 
 type DataStack = Stack Value
 
-type CompilerStack = Stack ( String, Eval Value )
+type CompilerStack = Stack Value
 
 type Heap = [ Value ]
 
@@ -144,6 +144,32 @@ rDump = do
 rDrop :: ByteCodeOp
 rDrop = popData >> return Undef
 
+rJmp :: ByteCodeOp
+rJmp = do
+    ist <- get
+    addr <- (ist.pcode !! ist.pp)
+    case addr of
+        Integer a' ->  put ist { pp = a' } >> return Undef
+        _ -> liftIO $ die "Incorrect JUMP address."
+
+rJnz :: ByteCodeOp
+rJnz = do
+    ist <- get
+    addr <- (ist.pcode !! ist.pp)
+    x <- popData
+    case (x, addr) of 
+        (Integer 0, _) -> put ist { pp = ist.pp + 1 } >> return Undef
+        (Integer _, Integer a') -> put ist { pp = a' } >> return Undef
+
+rJz :: ByteCodeOp
+rJz = do
+    ist <- get
+    addr <- (ist.pcode !! ist.pp)
+    x <- popData
+    case (x, addr) of 
+        (Integer 0, Integer a') -> put ist { pp = a' } >> return Undef
+        _ -> put ist { pp = ist.pp + 1 } >> return Undef
+
 rEq :: ByteCodeOp
 rEq = do
     b <- popData
@@ -203,6 +229,19 @@ rPush = do
     d <- ist.pcode !! ist.pp
     pushData (d)
     put ist { pp = ist.pp + 1 }
+    return Undef
+
+popControl :: Eval Value
+popControl = do
+    cs <- gets cs
+    case stackPop cs of
+        Just (cs, x) -> return x
+        Nothing -> liftIO $ die "Attempted to pop on empty control stack"
+
+pushControl :: Value -> Eval Value
+pushControl x = do 
+    ist <- get
+    put ist { ds = stackPush ist.cs x }
     return Undef
 
 cColon :: ByteCodeOp
