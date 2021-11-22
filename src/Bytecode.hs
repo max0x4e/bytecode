@@ -14,34 +14,9 @@ import Text.Regex
 import Text.Read ( readMaybe )
 import System.IO 
 import System.Exit
-------------------------------------------------------------------
-type MyState = String 
-data Command = Return Int | GetState | SetState MyState | FuncCall [Command] deriving (Show)
-data ValueOld = Undefined | ValueOld Int | StateValueOld MyState deriving (Show)
+import Control.Applicative hiding ( empty )
 
-type EvalOld a = ContT ValueOld (State MyState) a
-
-runEvalOld :: EvalOld ValueOld -> MyState -> (ValueOld, MyState)
-runEvalOld evalOld = runState (runContT evalOld return) 
-
-evalPCode :: [Command] -> ValueOld
-evalPCode stmts = fst $ runEvalOld (evalBlock stmts) ""
-
--- compile
-evalBlock :: [Command] -> EvalOld ValueOld
-evalBlock [] = return Undefined
-evalBlock [stmt] = evalStatment stmt
-evalBlock (st:stmts) = evalStatment st >> evalBlock stmts
-
--- eval
-evalStatment :: Command -> EvalOld ValueOld
-evalStatment (Return val) = ContT $ \_ -> return (ValueOld val)
-evalStatment (SetState state) = put state >> return Undefined
-evalStatment (FuncCall stmts) = lift $ runContT (evalBlock stmts) return
-evalStatment GetState = StateValueOld <$> get
-
-------------------------------------------------------------------
-data Value = Undef | Integer Integer | Double Double | Word String deriving (Show)
+data Value = Undef | Integer Int | Float Float | Word String deriving (Show)
 
 type Eval a = ContT Value (StateT IST IO) a
 
@@ -51,114 +26,204 @@ type CompilerStack = Stack ( String, Eval Value )
 
 type Heap = [ Value ]
 
+type ByteCodeOp = Eval Value
+
 type Dictionary a = HashMap String a
 
-data IST = IST { 
+data IST = IST {
+    pp :: Int, -- bytecode op pointer
+    hp :: Int, -- heap pointer
     ds :: DataStack,  -- runtime data stack
     cs :: CompilerStack, -- compile time stack for complex control structures
     heap :: Heap,     -- heap
     program :: [ String ], -- uncompiled part of the program
-    pcode :: [ Eval Value ],   -- byte code
-    dd :: Dictionary [ Eval Value ] -- dynamic dictionary
+    pcode :: [ ByteCodeOp ],   -- byte code
+    dd :: Dictionary [ ByteCodeOp ] -- dynamic dictionary
 }
 
-compilerActions :: Dictionary (Eval Value)
+compilerActions :: Dictionary ByteCodeOp
 compilerActions = fromList [(":", cColon), (";", cSemi), ("if", cIf), ("else", cElse), ("then", cThen), ("begin", cBegin), ("until", cUntil)]
 
-runtimeActions :: Dictionary (Eval Value)
+runtimeActions :: Dictionary ByteCodeOp
 runtimeActions = fromList [("+", rAdd), ("-" , rSub), ("/", rDiv), ("*", rMul), ("over", rOver), ("dup", rDup), ("swap", rSwap), (".", rDot), 
             ("dump" , rDump), ("drop", rDrop), ("=", rEq), (">", rGt), ("<", rLt), (",", rComa), ("@", rAt), ("!" , rBang), 
             ("allot", rAllot), ("create", rCreate), ("does>", rDoes)]
 
-rData :: String -> Eval Value
-rData w = case readMaybe w :: Maybe Integer of
+popData :: Eval Value
+popData = do
+    ds <- gets ds
+    case stackPop ds of
+        Just (ds, x) -> return x
+        Nothing -> liftIO $ die "Attempted to pop on empty data stack"
+
+pushData :: Value -> Eval Value
+pushData x = do 
+    ist <- get
+    put ist { ds = stackPush ist.ds x }
+    return Undef
+
+rData :: String -> ByteCodeOp
+rData w = case readMaybe w :: Maybe Int of
     Just i -> return (Integer i)
-    Nothing -> case readMaybe w :: Maybe Double of 
-        Just d -> return (Double d)
+    Nothing -> case readMaybe w :: Maybe Float of 
+        Just f -> return (Float f)
         Nothing -> return (Word w)
 
-rAdd :: Eval Value
-rAdd = get >>= put >> return Undef
+rAdd :: ByteCodeOp
+rAdd = do
+    b <- popData
+    a <- popData
+    case (a,b) of 
+        (Integer a', Integer b') -> pushData (Integer (a' + b'))
+        (Float a', Float b') -> pushData (Float (a' + b'))
+    return Undef
 
-rSub :: Eval Value
-rSub = get >>= put >> return Undef 
+rSub :: ByteCodeOp
+rSub = do
+    b <- popData
+    a <- popData
+    case (a,b) of 
+        (Integer a', Integer b') -> pushData (Integer (a' - b'))
+        (Float a', Float b') -> pushData (Float (a' - b'))
+    return Undef
 
-rDiv :: Eval Value
-rDiv = get >>= put >> return Undef
+rDiv :: ByteCodeOp
+rDiv = do
+    b <- popData
+    a <- popData
+    case (a,b) of 
+        (Integer a', Integer b') -> pushData (Integer (a' `div` b'))
+        (Float a', Float b') -> pushData (Float (a' / b'))
+    return Undef
 
-rMul :: Eval Value
-rMul = get >>= put >> return Undef
+rMul :: ByteCodeOp
+rMul = do
+    b <- popData
+    a <- popData
+    case (a,b) of 
+        (Integer a', Integer b') -> pushData (Integer (a' * b'))
+        (Float a', Float b') -> pushData (Float (a' * b'))
+    return Undef
 
-rOver :: Eval Value
-rOver = get >>= put >> return Undef 
+rOver :: ByteCodeOp
+rOver = do
+    a <- popData
+    b <- popData
+    pushData b
+    pushData a
+    pushData b
+    return Undef 
 
-rDup :: Eval Value
-rDup = get >>= put >> return Undef
+rDup :: ByteCodeOp
+rDup = do
+    a <- popData
+    pushData a
+    pushData a
+    return Undef
 
-rSwap :: Eval Value
-rSwap = get >>= put >> return Undef
+rSwap :: ByteCodeOp
+rSwap = do
+    a <- popData
+    b <- popData
+    pushData a
+    pushData b
+    return Undef
 
-rDot :: Eval Value
-rDot = get >>= put >> return Undef 
+rDot :: ByteCodeOp
+rDot = do
+    a <- popData
+    liftIO $ print a
+    return Undef
 
-rDump :: Eval Value
-rDump = get >>= put >> return Undef
+rDump :: ByteCodeOp
+rDump = do
+    ds <- gets ds
+    liftIO $ print ds
+    return Undef
 
-rDrop :: Eval Value
-rDrop = get >>= put >> return Undef
+rDrop :: ByteCodeOp
+rDrop = popData >> return Undef
 
-rEq :: Eval Value
-rEq = get >>= put >> return Undef
+rEq :: ByteCodeOp
+rEq = do
+    b <- popData
+    a <- popData
+    case (a,b) of 
+        (Integer a', Integer b') -> pushData (Integer (if a' == b' then 1 else 0))
+        (Float a', Float b') -> pushData (Float (if a' == b' then 1 else 0))
+    return Undef
 
-rGt :: Eval Value
-rGt = get >>= put >> return Undef 
+rGt :: ByteCodeOp
+rGt = do
+    b <- popData
+    a <- popData
+    case (a,b) of 
+        (Integer a', Integer b') -> pushData (Integer (if a' > b' then 1 else 0))
+        (Float a', Float b') -> pushData (Float (if a' > b' then 1 else 0))
+    return Undef
 
-rLt :: Eval Value
-rLt = get >>= put >> return Undef 
+rLt :: ByteCodeOp
+rLt = do
+    b <- popData
+    a <- popData
+    case (a,b) of 
+        (Integer a', Integer b') -> pushData (Integer (if a' < b' then 1 else 0))
+        (Float a', Float b') -> pushData (Float (if a' < b' then 1 else 0))
+    return Undef
 
-rComa :: Eval Value
+rComa :: ByteCodeOp
 rComa = get >>= put >> return Undef 
 
-rAt :: Eval Value
-rAt = get >>= put >> return Undef 
+rAt :: ByteCodeOp
+rAt = do
+    ist <- get
+    addr <- popData
+    case addr of
+        Integer a -> pushData (ist.heap !! a)
+        _ -> liftIO $ die "Heap address is incorrect."
 
-rBang :: Eval Value
+rBang :: ByteCodeOp
 rBang = get >>= put >> return Undef 
 
-rAllot :: Eval Value
+rAllot :: ByteCodeOp
 rAllot = get >>= put >> return Undef
 
-rCreate :: Eval Value
+rCreate :: ByteCodeOp
 rCreate = get >>= put >> return Undef
 
-rDoes :: Eval Value
+rDoes :: ByteCodeOp
 rDoes = get >>= put >> return Undef
 
-rRun :: Eval Value
+rRun :: ByteCodeOp
 rRun = get >>= put >> return Undef
 
-rPush :: Eval Value
-rPush = get >>= put >> return Undef
+rPush :: ByteCodeOp
+rPush = do
+    ist <- get
+    d <- ist.pcode !! ist.pp
+    pushData (d)
+    put ist { pp = ist.pp + 1 }
+    return Undef
 
-cColon :: Eval Value
+cColon :: ByteCodeOp
 cColon = get >>= put >> return Undef
 
-cSemi :: Eval Value
+cSemi :: ByteCodeOp
 cSemi = get >>= put >> return Undef
 
-cIf :: Eval Value
+cIf :: ByteCodeOp
 cIf = get >>= put >> return Undef
 
-cElse :: Eval Value
+cElse :: ByteCodeOp
 cElse = get >>= put >> return Undef
 
-cThen :: Eval Value
+cThen :: ByteCodeOp
 cThen = get >>= put >> return Undef
 
-cBegin :: Eval Value
+cBegin :: ByteCodeOp
 cBegin = get >>= put >> return Undef
 
-cUntil :: Eval Value
+cUntil :: ByteCodeOp
 cUntil = get >>= put >> return Undef
 
 runEval :: Eval Value -> IST -> IO (Value, IST)
@@ -167,6 +232,8 @@ runEval eval = runStateT (runContT eval return)
 evalProg :: String -> IO (Value, IST)
 evalProg program = 
     let st = IST {
+        pp = 0,
+        hp = 0,
         ds = stackNew,
         cs = stackNew,
         heap = [],
@@ -210,7 +277,7 @@ compile = get >>= \case
                                                                                     y <- rData x
                                                                                     case y of
                                                                                         Integer i -> modify $ \ist -> ist { pcode = ist.pcode ++ [rPush, rData x] }
-                                                                                        Double d -> modify $ \ist -> ist { pcode = ist.pcode ++ [rPush, rData x] }
+                                                                                        Float d -> modify $ \ist -> ist { pcode = ist.pcode ++ [rPush, rData x] }
                                                                                         Word w -> modify $ \ist -> ist { pcode = ist.pcode ++ [rRun, rData x] }
                                                                                     compile
         IST { pcode = (x:xs) } -> do  cs <- gets cs
@@ -220,22 +287,17 @@ compile = get >>= \case
                                           modify $ \ist -> ist { program = c }
                                           compile
 
- 
 exec :: Eval Value
-exec = get >>= \case
-        IST { pcode = [] } -> compile
-        IST { pcode = (x:xs) } -> x >> exec
+exec = do
+        ist <- get
+        if ist.pp == length ist.pcode then compile
+        else put ist { pp = ist.pp + 1 } >> ist.pcode !! ist.pp >> exec
 
 -- Later I may make it fancier with attoparsec or smth similar
 lexer :: String -> [ String ]
 lexer input = words $ subRegex (mkRegex "#.*$") input "\n"
 
-printout :: IST -> IO()
-printout IST{ program = [] } = print $ "one"
-printout IST{ program = (x:p) } = print $ x
-
 runInterpreter :: String -> IO ()
 runInterpreter initCode = do
     (val, state) <- evalProg initCode
-    print $ val
-    -- print $ evalPCode [SetState "Hello", FuncCall [SetState initCode, Return 3], GetState] 
+    print $ val 
