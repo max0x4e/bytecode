@@ -8,9 +8,10 @@ module Bytecode
 import Control.Monad.State.Lazy
     ( MonadTrans(lift), MonadState(get, put), State, StateT, runStateT, runState, gets, modify )
 import Control.Monad.Cont ( ContT(..), liftIO )
-import Data.Stack ( Stack, stackNew ) 
-import Data.HashMap.Strict 
+import Data.Stack ( Stack, stackNew, stackIsEmpty, stackPush, stackPop ) 
+import Data.HashMap.Strict as M
 import Text.Regex
+import Text.Read ( readMaybe )
 import System.IO 
 import System.Exit
 ------------------------------------------------------------------
@@ -40,19 +41,15 @@ evalStatment (FuncCall stmts) = lift $ runContT (evalBlock stmts) return
 evalStatment GetState = StateValueOld <$> get
 
 ------------------------------------------------------------------
-data Value = Undef | Integer Integer | Double Double deriving (Show)
+data Value = Undef | Integer Integer | Double Double | Word String deriving (Show)
 
 type Eval a = ContT Value (StateT IST IO) a
 
 type DataStack = Stack Value
 
-type CompilerStack = Stack ( String, ByteCodeOp )
+type CompilerStack = Stack ( String, Eval Value )
 
 type Heap = [ Value ]
-
-type ByteCodeOp = IST -> IST
-
-type ByteCode = [ ByteCodeOp ]
 
 type Dictionary a = HashMap String a
 
@@ -61,95 +58,108 @@ data IST = IST {
     cs :: CompilerStack, -- compile time stack for complex control structures
     heap :: Heap,     -- heap
     program :: [ String ], -- uncompiled part of the program
-    pcode :: ByteCode,   -- byte code
-    dd :: Dictionary ByteCode -- dynamic dictionary
+    pcode :: [ Eval Value ],   -- byte code
+    dd :: Dictionary [ Eval Value ] -- dynamic dictionary
 }
 
-compilerActions :: Dictionary ByteCodeOp
+compilerActions :: Dictionary (Eval Value)
 compilerActions = fromList [(":", cColon), (";", cSemi), ("if", cIf), ("else", cElse), ("then", cThen), ("begin", cBegin), ("until", cUntil)]
 
-runtimeActions :: Dictionary ByteCodeOp
+runtimeActions :: Dictionary (Eval Value)
 runtimeActions = fromList [("+", rAdd), ("-" , rSub), ("/", rDiv), ("*", rMul), ("over", rOver), ("dup", rDup), ("swap", rSwap), (".", rDot), 
             ("dump" , rDump), ("drop", rDrop), ("=", rEq), (">", rGt), ("<", rLt), (",", rComa), ("@", rAt), ("!" , rBang), 
             ("allot", rAllot), ("create", rCreate), ("does>", rDoes)]
 
-rAdd :: ByteCodeOp
-rAdd s = s
+rData :: String -> Eval Value
+rData w = case readMaybe w :: Maybe Integer of
+    Just i -> return (Integer i)
+    Nothing -> case readMaybe w :: Maybe Double of 
+        Just d -> return (Double d)
+        Nothing -> return (Word w)
 
-rSub :: ByteCodeOp
-rSub s = s 
+rAdd :: Eval Value
+rAdd = get >>= put >> return Undef
 
-rDiv :: ByteCodeOp
-rDiv s = s
+rSub :: Eval Value
+rSub = get >>= put >> return Undef 
 
-rMul :: ByteCodeOp
-rMul s = s
+rDiv :: Eval Value
+rDiv = get >>= put >> return Undef
 
-rOver :: ByteCodeOp
-rOver s = s 
+rMul :: Eval Value
+rMul = get >>= put >> return Undef
 
-rDup :: ByteCodeOp
-rDup s = s
+rOver :: Eval Value
+rOver = get >>= put >> return Undef 
 
-rSwap :: ByteCodeOp
-rSwap s = s
+rDup :: Eval Value
+rDup = get >>= put >> return Undef
 
-rDot :: ByteCodeOp
-rDot s = s 
+rSwap :: Eval Value
+rSwap = get >>= put >> return Undef
 
-rDump :: ByteCodeOp
-rDump s = s
+rDot :: Eval Value
+rDot = get >>= put >> return Undef 
 
-rDrop :: ByteCodeOp
-rDrop s = s
+rDump :: Eval Value
+rDump = get >>= put >> return Undef
 
-rEq :: ByteCodeOp
-rEq s = s
+rDrop :: Eval Value
+rDrop = get >>= put >> return Undef
 
-rGt :: ByteCodeOp
-rGt s = s 
+rEq :: Eval Value
+rEq = get >>= put >> return Undef
 
-rLt :: ByteCodeOp
-rLt s = s 
+rGt :: Eval Value
+rGt = get >>= put >> return Undef 
 
-rComa :: ByteCodeOp
-rComa s = s 
+rLt :: Eval Value
+rLt = get >>= put >> return Undef 
 
-rAt :: ByteCodeOp
-rAt s = s 
+rComa :: Eval Value
+rComa = get >>= put >> return Undef 
 
-rBang :: ByteCodeOp
-rBang s = s 
+rAt :: Eval Value
+rAt = get >>= put >> return Undef 
 
-rAllot :: ByteCodeOp
-rAllot s = s
+rBang :: Eval Value
+rBang = get >>= put >> return Undef 
 
-rCreate :: ByteCodeOp
-rCreate s = s
+rAllot :: Eval Value
+rAllot = get >>= put >> return Undef
 
-rDoes :: ByteCodeOp
-rDoes s = s
+rCreate :: Eval Value
+rCreate = get >>= put >> return Undef
 
-cColon :: ByteCodeOp
-cColon s = s
+rDoes :: Eval Value
+rDoes = get >>= put >> return Undef
 
-cSemi :: ByteCodeOp
-cSemi s = s
+rRun :: Eval Value
+rRun = get >>= put >> return Undef
 
-cIf :: ByteCodeOp
-cIf s = s
+rPush :: Eval Value
+rPush = get >>= put >> return Undef
 
-cElse :: ByteCodeOp
-cElse s = s
+cColon :: Eval Value
+cColon = get >>= put >> return Undef
 
-cThen :: ByteCodeOp
-cThen s = s
+cSemi :: Eval Value
+cSemi = get >>= put >> return Undef
 
-cBegin :: ByteCodeOp
-cBegin s = s
+cIf :: Eval Value
+cIf = get >>= put >> return Undef
 
-cUntil :: ByteCodeOp
-cUntil s = s
+cElse :: Eval Value
+cElse = get >>= put >> return Undef
+
+cThen :: Eval Value
+cThen = get >>= put >> return Undef
+
+cBegin :: Eval Value
+cBegin = get >>= put >> return Undef
+
+cUntil :: Eval Value
+cUntil = get >>= put >> return Undef
 
 runEval :: Eval Value -> IST -> IO (Value, IST)
 runEval eval = runStateT (runContT eval return)
@@ -184,27 +194,37 @@ compile = get >>= \case
                                                 then do
                                                     liftIO $ putStrLn "Good bye!"
                                                     liftIO $ exitSuccess 
-                                                else if member x compilerActions then do
-                                                    liftIO $ putStrLn "cAct"
-                                                    return Undef
-                                                else if member x runtimeActions then do 
-                                                    liftIO $ putStrLn "rAct"
-                                                    return Undef
-                                                else do
-                                                    dd <- gets dd
-                                                    if member x dd then do
-                                                        liftIO $ putStrLn "dynamic"
-                                                        return Undef
-                                                    else do
-                                                        liftIO $ print $ x    
-                                                        liftIO $ print $ xs
-                                                        return Undef
-        IST { pcode = (x:xs) } -> exec
+                                                else case M.lookup x compilerActions of
+                                                         Just op -> op >> compile
+                                                         Nothing -> case M.lookup x runtimeActions of 
+                                                                        Just op -> do
+                                                                            modify $ \ist -> ist { pcode = ist.pcode ++ [op] }
+                                                                            compile
+                                                                        Nothing -> do
+                                                                            dd <- gets dd
+                                                                            case M.lookup x dd of
+                                                                                Just bc -> do
+                                                                                    modify $ \ist -> ist { pcode = ist.pcode ++ [rRun, rData x] }
+                                                                                    compile
+                                                                                Nothing -> do
+                                                                                    y <- rData x
+                                                                                    case y of
+                                                                                        Integer i -> modify $ \ist -> ist { pcode = ist.pcode ++ [rPush, rData x] }
+                                                                                        Double d -> modify $ \ist -> ist { pcode = ist.pcode ++ [rPush, rData x] }
+                                                                                        Word w -> modify $ \ist -> ist { pcode = ist.pcode ++ [rRun, rData x] }
+                                                                                    compile
+        IST { pcode = (x:xs) } -> do  cs <- gets cs
+                                      if stackIsEmpty cs then exec
+                                      else do
+                                          c <- liftIO $ moreCode "... " 
+                                          modify $ \ist -> ist { program = c }
+                                          compile
+
  
 exec :: Eval Value
 exec = get >>= \case
         IST { pcode = [] } -> compile
-        IST { pcode = (x:xs) } -> exec
+        IST { pcode = (x:xs) } -> x >> exec
 
 -- Later I may make it fancier with attoparsec or smth similar
 lexer :: String -> [ String ]
