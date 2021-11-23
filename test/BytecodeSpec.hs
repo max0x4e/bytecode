@@ -9,7 +9,7 @@ spec = do
             it "executes statements for a simple stack-based language" $ do
                 let code = "# This is just a comment\n\
                             \ 4 5 +"
-                runIO runInterpreter code
+                runInterpreter code
 
 main :: IO () 
 main = hspec spec
